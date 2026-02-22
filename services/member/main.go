@@ -8,9 +8,11 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/zensos/microservice-project/internal/common"
+	"fmt"
 )
 
 func main() {
+	fmt.Println("Starting Member Service...")
 	app := fiber.New()
 
 	app.Get("/", func(c fiber.Ctx) error {
