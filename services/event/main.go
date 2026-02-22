@@ -25,7 +25,7 @@ func main() {
 	app.Get("/events/:id", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"id":    1,
-			"name":  "Go Conference 2026",
+			"name":  "eiei",
 			"price": 150.00,
 		})
 	})
