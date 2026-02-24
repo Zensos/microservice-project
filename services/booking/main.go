@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,12 +15,25 @@ import (
 	"github.com/zensos/microservice-project/internal/common"
 )
 
+// TODO(DB): replace in-memory seat reservation with DB transaction:
+// 1) insert bookings
+// 2) insert booking_seats (UNIQUE(event_id, seat_id) to prevent oversell)
+// 3) on unique violation -> return 409 and rollback
+
+
 // รับคำขอจอง + ตรวจข้อมูล
 type CreateBookingRequest struct {
 	EventID int      `json:"event_id"`
 	UserID  string   `json:"user_id"`
 	SeatIDs []string `json:"seat_ids"`
 }
+
+//เก็บ seat ที่ถูกจอง
+var (
+	seatMu        = sync.Mutex{}
+	reservedSeats = map[string]bool{} // key = fmt.Sprintf("%d:%s", eventID, seatID)
+)
+
 
 func main() {
 	app := fiber.New()
@@ -105,7 +119,7 @@ func main() {
 		}
 
 		log.Println("checking member service...")
-		
+
 		memberAddr, err := common.DiscoverService(consulClient, "member")
 		if err != nil {
 			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't find the member service: %v", err)})
@@ -126,7 +140,25 @@ func main() {
 			return c.Status(502).JSON(fiber.Map{"error": "member service error"})
 		}
 
-		bookingID := "book_123" //replace with real id
+		//ส่วนเช็คสถานะทีนั่ง
+		seatMu.Lock()
+		defer seatMu.Unlock()
+		//เช็คว่าว่างมั้ย
+		for _, seat := range req.SeatIDs {
+			key := fmt.Sprintf("%d:%s", req.EventID, seat)
+			if reservedSeats[key] {
+				return c.Status(409).JSON(fiber.Map{"error": fmt.Sprintf("seat %s is not available", seat)})
+			}
+		}
+		//จองที่นั่ง
+		for _, seat := range req.SeatIDs {
+			key := fmt.Sprintf("%d:%s", req.EventID, seat)
+			reservedSeats[key] = true
+		}
+
+
+		// TODO(DB): generate booking_id (UUID) and persist to DB
+		bookingID := "book_123"
 
 		return c.Status(201).JSON(fiber.Map{
 			"booking_id": bookingID,
