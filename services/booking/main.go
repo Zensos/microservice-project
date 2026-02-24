@@ -153,19 +153,22 @@ func main() {
 
 		//ส่วนเช็คสถานะทีนั่ง
 		seatMu.Lock()
-		defer seatMu.Unlock()
-		//เช็คว่าว่างมั้ย
+
+		// check availability
 		for _, seat := range req.SeatIDs {
 			key := fmt.Sprintf("%d:%s", req.EventID, seat)
 			if reservedSeats[key] {
+				seatMu.Unlock()
 				return c.Status(409).JSON(fiber.Map{"error": fmt.Sprintf("seat %s is not available", seat)})
 			}
 		}
-		//จองที่นั่ง
+		// reserve
 		for _, seat := range req.SeatIDs {
 			key := fmt.Sprintf("%d:%s", req.EventID, seat)
 			reservedSeats[key] = true
 		}
+
+		seatMu.Unlock()
 
 		// TODO(DB): generate booking_id (UUID) and persist to DB
 		bookingID := fmt.Sprintf("book_%d", time.Now().UnixNano())
