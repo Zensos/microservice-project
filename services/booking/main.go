@@ -1,7 +1,6 @@
 package main
 
 import (
-	"sync"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/zensos/microservice-project/internal/common"
@@ -20,20 +21,29 @@ import (
 // 2) insert booking_seats (UNIQUE(event_id, seat_id) to prevent oversell)
 // 3) on unique violation -> return 409 and rollback
 
-
 // รับคำขอจอง + ตรวจข้อมูล
 type CreateBookingRequest struct {
-	EventID int      `json:"event_id"`
-	UserID  string   `json:"user_id"`
-	SeatIDs []string `json:"seat_ids"`
+	EventID  int      `json:"event_id"`
+	MemberID string   `json:"member_id"`
+	SeatIDs  []string `json:"seat_ids"`
 }
 
-//เก็บ seat ที่ถูกจอง
+type Ticket struct {
+	TicketID  string `json:"ticket_id"`
+	BookingID string `json:"booking_id"`
+	EventID   int    `json:"event_id"`
+	MemberID  string `json:"member_id"`
+	SeatID    string `json:"seat_id"`
+}
+
+// เก็บ seat ที่ถูกจอง, ตั๋ว
 var (
 	seatMu        = sync.Mutex{}
 	reservedSeats = map[string]bool{} // key = fmt.Sprintf("%d:%s", eventID, seatID)
-)
 
+	ticketMu    = sync.Mutex{}
+	userTickets = map[string][]Ticket{} // member_id -> tickets[]
+)
 
 func main() {
 	app := fiber.New()
@@ -71,8 +81,8 @@ func main() {
 		if req.EventID <= 0 {
 			return c.Status(400).JSON(fiber.Map{"error": "event_id must be > 0"})
 		}
-		if req.UserID == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "user_id is required"})
+		if req.MemberID == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "member_id is required"})
 		}
 		if len(req.SeatIDs) == 0 {
 			return c.Status(400).JSON(fiber.Map{"error": "seat_ids must not be empty"})
@@ -125,7 +135,6 @@ func main() {
 			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't find the member service: %v", err)})
 		}
 
-
 		memberURL := fmt.Sprintf("http://%s/members/1", memberAddr)
 		memberResp, err := http.Get(memberURL)
 		if err != nil {
@@ -156,18 +165,52 @@ func main() {
 			reservedSeats[key] = true
 		}
 
-
 		// TODO(DB): generate booking_id (UUID) and persist to DB
-		bookingID := "book_123"
+		bookingID := fmt.Sprintf("book_%d", time.Now().UnixNano())
+		
+		base := time.Now().UnixNano()
+		//สร้างตั๋วเก็บตั๋ว
+		ticketMu.Lock()
+		for i, seat := range req.SeatIDs {
+			t := Ticket{
+				TicketID:  fmt.Sprintf("t_%d_%d", base, i),
+				BookingID: bookingID,
+				EventID:   req.EventID,
+				MemberID:  req.MemberID,
+				SeatID:    seat,
+			}
+			userTickets[req.MemberID] = append(userTickets[req.MemberID], t)
+		}
+		ticketMu.Unlock()
 
 		return c.Status(201).JSON(fiber.Map{
 			"booking_id": bookingID,
 			"event":      eventData,
-			"user_id":    req.UserID,
+			"member_id":  req.MemberID,
 			"seat_ids":   req.SeatIDs,
 			"status":     "PENDING", // อาจเป็น PENDING ก่อน แล้วค่อย CONFIRMED หลัง payment
 		})
 
+	})
+
+	app.Get("/users/:member_id/tickets", func(c fiber.Ctx) error {
+		MemberID := c.Params("member_id")
+		if MemberID == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "member_id is required"})
+		}
+
+		ticketMu.Lock()
+		tickets, ok := userTickets[MemberID]
+		ticketMu.Unlock()
+
+		if !ok {
+			tickets = []Ticket{}
+		}
+
+		return c.JSON(fiber.Map{
+			"member_id": MemberID,
+			"tickets":   tickets,
+		})
 	})
 
 	go func() {
