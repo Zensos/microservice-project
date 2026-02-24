@@ -106,10 +106,12 @@ func main() {
 			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't find the event service: %v", err)})
 		}
 
+		//ใส่ timeout ให้ event/member call (กันค้าง)
+		client := &http.Client{Timeout: 3 * time.Second}
 		// ช็คeventว่ารันอยู่มั้ยและค่อยไปเช็คstatus
 		// NOTE: ตอนต่อ DB จริง ควรใช้ http.Client พร้อม timeout (กันค้าง)
 		eventURL := fmt.Sprintf("http://%s/events/%d", eventAddr, req.EventID)
-		eventResp, err := http.Get(eventURL)
+		eventResp, err := client.Get(eventURL)
 		if err != nil {
 			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't reach the event service: %v", err)})
 		}
@@ -135,8 +137,8 @@ func main() {
 			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't find the member service: %v", err)})
 		}
 
-		memberURL := fmt.Sprintf("http://%s/members/1", memberAddr)
-		memberResp, err := http.Get(memberURL)
+		memberURL := fmt.Sprintf("http://%s/members/%s", memberAddr, req.MemberID)
+		memberResp, err := client.Get(memberURL)
 		if err != nil {
 			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't reach the member service: %v", err)})
 		}
@@ -167,7 +169,7 @@ func main() {
 
 		// TODO(DB): generate booking_id (UUID) and persist to DB
 		bookingID := fmt.Sprintf("book_%d", time.Now().UnixNano())
-		
+
 		base := time.Now().UnixNano()
 		//สร้างตั๋วเก็บตั๋ว
 		ticketMu.Lock()
