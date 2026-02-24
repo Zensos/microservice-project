@@ -60,3 +60,74 @@ func updateMemberProfile(c fiber.Ctx) error {
 
 	return c.Status(fiber.StatusNotFound).SendString("Member with ID " + c.Params("id") + " not found")
 }
+
+func changePassword(c fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	}
+	
+	changePassword := new(ChangePasswordRequest)
+	if err := c.Bind().JSON(changePassword); err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("Invalid request body")
+	}
+	for i, member := range members {
+		if member.ID == id {
+			if member.PasswordHash != changePassword.CurrentPassword {
+				return c.Status(fiber.StatusBadRequest).SendString("Current password is incorrect")
+			}
+			if changePassword.NewPassword != changePassword.ConfirmPassword {
+				return c.Status(fiber.StatusBadRequest).SendString("New password and confirm password do not match")
+			}
+			member.PasswordHash = changePassword.NewPassword
+			members[i] = member
+			return c.JSON(fiber.Map{"message": "Password changed successfully"})
+		}
+	}
+
+	return c.Status(fiber.StatusNotFound).SendString("Member with ID " + c.Params("id") + " not found")
+}
+
+func signup(c fiber.Ctx) error {
+	newMember := new(SignUpRequest)
+	if err := c.Bind().JSON(newMember); err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	}
+
+	// password and confirm password must match
+	if newMember.Password != newMember.ConfirmPassword {
+		return c.Status(fiber.StatusBadRequest).SendString("Password and confirm password do not match")
+	}
+
+	// check if email already exists
+	for _, m := range members {
+		if m.Email == newMember.Email {
+			return c.Status(fiber.StatusBadRequest).SendString("Email already exists")
+		}
+	}
+
+	members = append(members, Member{
+		ID:        len(members) + 1,
+		FirstName: newMember.FirstName,
+		LastName:  newMember.LastName,
+		Email:     newMember.Email,
+		PasswordHash: newMember.Password,
+	})
+	return c.JSON(newMember)
+}
+
+func signin(c fiber.Ctx) error {
+	member := new(SignInRequest)
+	if err := c.Bind().JSON(member); err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	}
+	for _, m := range members {
+		if m.Email == member.Email && m.PasswordHash == member.Password {
+			return c.JSON(fiber.Map{
+				"message": "Sign in successful",
+				"member":  m,
+			})
+		}
+	}
+	return c.Status(fiber.StatusUnauthorized).SendString("Invalid email or password")
+}
