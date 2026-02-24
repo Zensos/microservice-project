@@ -104,6 +104,28 @@ func main() {
 			return c.Status(502).JSON(fiber.Map{"error": "got a bad response from the event service"})
 		}
 
+		log.Println("checking member service...")
+		
+		memberAddr, err := common.DiscoverService(consulClient, "member")
+		if err != nil {
+			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't find the member service: %v", err)})
+		}
+
+
+		memberURL := fmt.Sprintf("http://%s/members/1", memberAddr)
+		memberResp, err := http.Get(memberURL)
+		if err != nil {
+			return c.Status(502).JSON(fiber.Map{"error": fmt.Sprintf("couldn't reach the member service: %v", err)})
+		}
+		defer memberResp.Body.Close()
+
+		if memberResp.StatusCode == 404 {
+			return c.Status(404).JSON(fiber.Map{"error": "user not found"})
+		}
+		if memberResp.StatusCode != 200 {
+			return c.Status(502).JSON(fiber.Map{"error": "member service error"})
+		}
+
 		bookingID := "book_123" //replace with real id
 
 		return c.Status(201).JSON(fiber.Map{
