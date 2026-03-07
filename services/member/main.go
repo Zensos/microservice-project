@@ -8,10 +8,23 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/zensos/microservice-project/internal/common"
+	"github.com/zensos/microservice-project/internal/database"
+	"github.com/zensos/microservice-project/internal/middleware"
+	"gorm.io/gorm"
 )
 
+var db *gorm.DB
+
 func main() {
+	db = database.Connect()
+	db.AutoMigrate(&Member{})
+
 	app := fiber.New()
+
+	app.Use(middleware.RateLimiter(middleware.RateLimiterConfig{
+		Max:        100,
+		WindowSecs: 60,
+	}))
 
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendString("Member Service")
@@ -19,15 +32,6 @@ func main() {
 
 	app.Get("/health", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok", "service": "member"})
-	})
-
-	// TODO: replace it with real business logic
-	app.Get("/members/:id", func(c fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"id":    1,
-			"name":  "John Doe",
-			"email": "john@example.com",
-		})
 	})
 
 	consulClient, serviceID, err := common.RegisterService(common.ServiceConfig{
@@ -52,6 +56,12 @@ func main() {
 			log.Printf("Warning: server shutdown error: %v", err)
 		}
 	}()
+
+	app.Get("/members/:id", getMemberProfile)
+	app.Patch("/members/:id", updateMemberProfile)
+	app.Post("/members/:id/change-password", changePassword)
+	app.Post("/auth/signup", signup)
+	app.Post("/auth/signin", signin)
 
 	log.Fatal(app.Listen(":3003"))
 }
