@@ -130,6 +130,11 @@ func main() {
 		var ledger Ledger
 
 		txErr := db.Transaction(func(tx *gorm.DB) error {
+			var existingPayment Payment
+			if err := tx.Where("booking_id = ? AND status = ?", req.BookingID, "confirmed").First(&existingPayment).Error; err == nil {
+				return fmt.Errorf("booking already paid")
+			}
+
 			var wallet Wallet
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("member_id = ?", req.MemberID).First(&wallet).Error; err != nil {
@@ -170,6 +175,9 @@ func main() {
 
 		if txErr != nil {
 			msg := txErr.Error()
+			if msg == "booking already paid" {
+				return c.Status(409).JSON(fiber.Map{"error": "booking_id is already paid"})
+			}
 			if msg == "wallet not found" {
 				return c.Status(404).JSON(fiber.Map{"error": "wallet not found, please top up first"})
 			}
